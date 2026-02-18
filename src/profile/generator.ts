@@ -1,13 +1,12 @@
 /**
  * Memory-based profile generation.
- * The AI client extracts memories from conversations in batches,
- * then this module assembles them into a ChatGPT-style profile.
+ * Title-scan-first approach: returns ALL conversation titles + first messages
+ * in a single response for efficient memory extraction.
  */
 
 import type { ConversationDatabase } from "../db/database.js";
 
-const BATCH_SIZE = 10;
-const MAX_WORDS_PER_CONVERSATION = 500;
+const MAX_FIRST_MESSAGE_WORDS = 30;
 
 const MEMORY_CATEGORIES = [
   "response_preference",
@@ -19,8 +18,9 @@ const MEMORY_CATEGORIES = [
 ] as const;
 
 export type MemoryCategory = (typeof MEMORY_CATEGORIES)[number];
+export type Depth = "quick" | "standard" | "deep";
 
-const EXTRACTION_PROMPT = `INSTRUCTIONS: Below are user messages from conversations. Extract memories about this user.
+const EXTRACTION_PROMPT = `Extract memories about this user from the conversation titles and first messages below.
 For each memory, classify into a category:
 - response_preference: How they communicate and like to receive responses
 - personal: Name, location, relationships, hobbies, life details
@@ -29,22 +29,41 @@ For each memory, classify into a category:
 - topic_highlight: Brief summary of a notable conversation topic
 - insight: Behavioral patterns
 
-Extract 2-5 memories per conversation where relevant. Skip conversations with nothing notable.
 Be specific — "Interested in web3" is worse than "Building a Polymarket trading bot with LMSR".
-After extracting, call save_memories with your findings, then call build_user_profile for the next batch.`;
+Look for patterns across conversations, not just individual titles.`;
 
-interface ConversationBatch {
-  conversation_id: number;
+const DEPTH_INSTRUCTIONS: Record<Depth, string> = {
+  quick:
+    EXTRACTION_PROMPT + "\n\nCall save_memories when done.",
+  standard:
+    EXTRACTION_PROMPT +
+    "\n\nAfter extracting from the overview, deep-dive the ~20-30 most interesting conversations using get_conversation. Call save_memories after each phase.",
+  deep:
+    EXTRACTION_PROMPT +
+    "\n\nAfter extracting from the overview, deep-dive every conversation using get_conversation. Save memories periodically.",
+};
+
+interface ConversationOverview {
+  id: number;
   title: string;
-  created_at: string | null;
-  user_messages: string;
+  date: string | null;
+  first_message: string;
+  message_count: number;
+  total_words: number;
 }
 
-export interface BuildBatchResult {
-  status: "pending";
-  batch: ConversationBatch[];
+interface ProjectGroup {
+  name: string;
+  conversations: ConversationOverview[];
+}
+
+export interface ProfileOverviewResult {
+  status: "overview";
+  total_conversations: number;
   conversation_ids: number[];
-  total_remaining: number;
+  date_range: { earliest: string | null; latest: string | null };
+  projects: ProjectGroup[];
+  unassigned: ConversationOverview[];
   instructions: string;
 }
 
@@ -54,62 +73,98 @@ export interface BuildCompleteResult {
 }
 
 /**
- * Get the next batch of unprocessed conversations for memory extraction.
- * Returns user messages only, truncated to ~500 words per conversation.
+ * Get an overview of all unprocessed conversations for memory extraction.
+ * Returns titles + first user messages grouped by project.
  */
-export function getBuildBatch(db: ConversationDatabase): BuildBatchResult | BuildCompleteResult {
-  const unprocessedIds = db.getUnprocessedConversationIds(BATCH_SIZE);
+export function getProfileOverview(
+  db: ConversationDatabase,
+  depth: Depth = "quick",
+): ProfileOverviewResult | BuildCompleteResult {
+  const unprocessedIds = db.getUnprocessedConversationIds();
 
   if (unprocessedIds.length === 0) {
-    // All conversations processed — return assembled profile
     const profile = assembleProfileFromMemories(db);
     return { status: "complete", profile };
   }
 
-  const totalRemaining = db.getUnprocessedCount();
+  // Get all unprocessed conversations with project info
+  const placeholders = unprocessedIds.map(() => "?").join(",");
+  const conversations = db.db.prepare(`
+    SELECT c.id, c.title, c.created_at, c.message_count, c.total_words, c.project_id,
+           p.name as project_name
+    FROM conversations c
+    LEFT JOIN projects p ON c.project_id = p.id
+    WHERE c.id IN (${placeholders})
+    ORDER BY c.created_at ASC
+  `).all(...unprocessedIds) as {
+    id: number;
+    title: string;
+    created_at: string | null;
+    message_count: number;
+    total_words: number;
+    project_id: number | null;
+    project_name: string | null;
+  }[];
 
-  const batch: ConversationBatch[] = [];
-  for (const convId of unprocessedIds) {
-    const conv = db.db.prepare(
-      "SELECT id, title, created_at FROM conversations WHERE id = ?",
-    ).get(convId) as { id: number; title: string; created_at: string | null } | undefined;
-    if (!conv) continue;
+  // Get first user message for each conversation
+  const firstMessageStmt = db.db.prepare(
+    "SELECT content FROM messages WHERE conversation_id = ? AND role IN ('user', 'human') ORDER BY sequence_order ASC LIMIT 1",
+  );
 
-    // Get user messages only
-    const messages = db.db.prepare(
-      "SELECT content FROM messages WHERE conversation_id = ? AND role IN ('user', 'human') ORDER BY sequence_order",
-    ).all(convId) as { content: string }[];
+  // Build overview entries grouped by project
+  const projectGroups: Map<string, ConversationOverview[]> = new Map();
+  const unassigned: ConversationOverview[] = [];
 
-    // Truncate to ~MAX_WORDS_PER_CONVERSATION words total
-    let wordCount = 0;
-    const truncatedMessages: string[] = [];
-    for (const msg of messages) {
-      const words = msg.content.split(/\s+/);
-      if (wordCount + words.length > MAX_WORDS_PER_CONVERSATION) {
-        const remaining = MAX_WORDS_PER_CONVERSATION - wordCount;
-        if (remaining > 0) {
-          truncatedMessages.push(words.slice(0, remaining).join(" ") + "...");
-        }
-        break;
-      }
-      truncatedMessages.push(msg.content);
-      wordCount += words.length;
+  for (const conv of conversations) {
+    const firstMsg = firstMessageStmt.get(conv.id) as { content: string } | undefined;
+    let firstMessage = "";
+    if (firstMsg) {
+      const words = firstMsg.content.split(/\s+/);
+      firstMessage =
+        words.length > MAX_FIRST_MESSAGE_WORDS
+          ? words.slice(0, MAX_FIRST_MESSAGE_WORDS).join(" ") + "..."
+          : firstMsg.content;
     }
 
-    batch.push({
-      conversation_id: conv.id,
+    const entry: ConversationOverview = {
+      id: conv.id,
       title: conv.title,
-      created_at: conv.created_at,
-      user_messages: truncatedMessages.join("\n\n"),
-    });
+      date: conv.created_at,
+      first_message: firstMessage,
+      message_count: conv.message_count,
+      total_words: conv.total_words,
+    };
+
+    if (conv.project_id && conv.project_name) {
+      const group = projectGroups.get(conv.project_name) || [];
+      group.push(entry);
+      projectGroups.set(conv.project_name, group);
+    } else {
+      unassigned.push(entry);
+    }
   }
 
+  const projects: ProjectGroup[] = Array.from(projectGroups.entries()).map(
+    ([name, convos]) => ({ name, conversations: convos }),
+  );
+
+  // Compute date range from conversations
+  const dates = conversations
+    .map((c) => c.created_at)
+    .filter((d): d is string => d !== null)
+    .sort();
+
   return {
-    status: "pending",
-    batch,
+    status: "overview",
+    total_conversations: unprocessedIds.length,
     conversation_ids: unprocessedIds,
-    total_remaining: totalRemaining,
-    instructions: EXTRACTION_PROMPT,
+    date_range: {
+      earliest: dates[0] || null,
+      latest: dates[dates.length - 1] || null,
+    },
+    projects,
+    unassigned,
+    instructions: DEPTH_INSTRUCTIONS[depth],
   };
 }
 

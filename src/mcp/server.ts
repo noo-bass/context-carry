@@ -16,9 +16,11 @@ export async function startMcpServer(dbPath: string): Promise<void> {
     instructions:
       "context-carry gives you access to the user's conversation history from other AI providers. " +
       "IMPORTANT: At the start of every new session, call `get_user_profile` to load the user's profile. " +
-      "If it says no profile exists, call `build_user_profile` to get a batch of conversations, read them, " +
-      "extract memories about the user, then call `save_memories` with your findings. Repeat " +
-      "`build_user_profile` → `save_memories` until all conversations are processed. " +
+      "If it says no profile exists, call `build_user_profile` to get an overview of ALL conversations " +
+      "(titles + first messages) in a single response. Extract memories from the overview, then call " +
+      "`save_memories` with your findings and the conversation IDs. That's it — just 2-3 tool calls! " +
+      "For richer profiles, use depth='standard' or 'deep' to deep-dive interesting conversations " +
+      "with `get_conversation`. " +
       "Use `search_conversations` to find specific past conversations when the user references " +
       "something from their history.",
   });

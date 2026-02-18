@@ -12,8 +12,14 @@ Import AI conversation exports and serve them via MCP, so any AI application can
 ## Install
 
 ```bash
-npm install
-npm run build
+npm install -g context-carry
+```
+
+Or run directly with npx:
+
+```bash
+npx context-carry import /path/to/export
+npx context-carry serve
 ```
 
 ## Usage
@@ -54,17 +60,17 @@ context-carry list --limit 50 --offset 50
 context-carry serve
 ```
 
-### MCP Integration
+## MCP Integration
 
-Add context-carry to your AI tool of choice. Replace `/path/to/context-carry` with the actual path to this repo.
+Add context-carry to your AI tool of choice.
 
-#### Claude Code
+### Claude Code
 
 ```bash
-claude mcp add --transport stdio --scope user context-carry -- node /path/to/context-carry/dist/index.js serve
+claude mcp add --transport stdio --scope user context-carry -- npx context-carry serve
 ```
 
-#### Claude Desktop
+### Claude Desktop
 
 Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS):
 
@@ -72,33 +78,33 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS):
 {
   "mcpServers": {
     "context-carry": {
-      "command": "node",
-      "args": ["/path/to/context-carry/dist/index.js", "serve"]
+      "command": "npx",
+      "args": ["context-carry", "serve"]
     }
   }
 }
 ```
 
-#### Gemini CLI
+### Gemini CLI
 
 ```bash
-gemini mcp add -s user context-carry node /path/to/context-carry/dist/index.js serve
+gemini mcp add -s user context-carry npx context-carry serve
 ```
 
-Or edit `~/.gemini/settings.json` (global) or `.gemini/settings.json` (project):
+Or edit `~/.gemini/settings.json`:
 
 ```json
 {
   "mcpServers": {
     "context-carry": {
-      "command": "node",
-      "args": ["/path/to/context-carry/dist/index.js", "serve"]
+      "command": "npx",
+      "args": ["context-carry", "serve"]
     }
   }
 }
 ```
 
-#### Cursor
+### Cursor
 
 Edit `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (project):
 
@@ -106,14 +112,14 @@ Edit `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (project):
 {
   "mcpServers": {
     "context-carry": {
-      "command": "node",
-      "args": ["/path/to/context-carry/dist/index.js", "serve"]
+      "command": "npx",
+      "args": ["context-carry", "serve"]
     }
   }
 }
 ```
 
-#### VS Code / GitHub Copilot
+### VS Code / GitHub Copilot
 
 Edit `.vscode/mcp.json` in your project root:
 
@@ -122,8 +128,8 @@ Edit `.vscode/mcp.json` in your project root:
   "servers": {
     "context-carry": {
       "type": "stdio",
-      "command": "node",
-      "args": ["/path/to/context-carry/dist/index.js", "serve"]
+      "command": "npx",
+      "args": ["context-carry", "serve"]
     }
   }
 }
@@ -131,7 +137,7 @@ Edit `.vscode/mcp.json` in your project root:
 
 > Note: VS Code uses `"servers"` (not `"mcpServers"`) and requires `"type": "stdio"`.
 
-#### Windsurf
+### Windsurf
 
 Edit `~/.codeium/windsurf/mcp_config.json`:
 
@@ -139,14 +145,14 @@ Edit `~/.codeium/windsurf/mcp_config.json`:
 {
   "mcpServers": {
     "context-carry": {
-      "command": "node",
-      "args": ["/path/to/context-carry/dist/index.js", "serve"]
+      "command": "npx",
+      "args": ["context-carry", "serve"]
     }
   }
 }
 ```
 
-#### Cline
+### Cline
 
 Edit `~/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json`:
 
@@ -154,8 +160,8 @@ Edit `~/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-d
 {
   "mcpServers": {
     "context-carry": {
-      "command": "node",
-      "args": ["/path/to/context-carry/dist/index.js", "serve"]
+      "command": "npx",
+      "args": ["context-carry", "serve"]
     }
   }
 }
@@ -166,17 +172,33 @@ Edit `~/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-d
 | Tool | Description |
 |------|-------------|
 | `get_user_profile` | Synthesized user profile (interests, skills, style) — called automatically on session start |
-| `regenerate_profile` | Force-regenerate profile after importing new conversations |
+| `build_user_profile` | Get an overview of all conversations for memory extraction. Supports `quick`, `standard`, and `deep` depth levels |
+| `save_memories` | Save extracted memories about the user. Optionally marks conversations as processed |
+| `regenerate_profile` | Wipe and rebuild the profile from scratch |
 | `search_conversations` | Full-text search across all conversations |
-| `get_conversation` | Get a conversation with its messages |
+| `get_conversation` | Get a conversation with its full message history |
 | `list_conversations` | Paginated list with provider/date/project filters |
 | `list_projects` | List all projects/workspaces |
 | `get_project` | Project detail with conversation list |
 | `get_stats` | Corpus-wide statistics and per-provider breakdown |
 
+### How profile building works
+
+When an AI agent calls `get_user_profile` and no profile exists, it builds one:
+
+1. **`build_user_profile`** — Returns all conversation titles and first messages in a single response, grouped by project
+2. The AI extracts memories (interests, skills, preferences) from the overview
+3. **`save_memories`** — Stores the extracted memories and marks conversations as processed
+4. **`get_user_profile`** — Returns the assembled profile
+
+That's 3 tool calls total for a quick profile, regardless of how many conversations you have.
+
+For richer profiles, use `depth="standard"` (AI deep-dives ~20-30 interesting conversations) or `depth="deep"` (deep-dives all conversations).
+
 ## Development
 
 ```bash
+npm install
 npm run dev       # Watch mode
 npm test          # Run tests
 npm run build     # Production build
@@ -195,9 +217,9 @@ Canonical data model → SQLite + FTS5 (better-sqlite3)
     ↓
 context-carry serve             ← MCP server (stdio, @modelcontextprotocol/sdk)
     ↓
-Any AI application (Claude Desktop, Claude Code, etc.)
+Any AI application (Claude Desktop, Claude Code, Cursor, etc.)
 ```
 
-## Stack
+## License
 
-TypeScript, commander, better-sqlite3, @modelcontextprotocol/sdk, zod, yauzl
+MIT

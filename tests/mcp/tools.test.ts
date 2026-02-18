@@ -114,16 +114,70 @@ describe("Memory extraction flow", () => {
     expect(result.message).toContain("build_user_profile");
   });
 
-  it("build_user_profile returns batch of unprocessed conversations", () => {
+  it("build_user_profile returns overview with projects and unassigned grouping", () => {
     const result = executeTool(db, "build_user_profile", {}) as any;
-    expect(result.status).toBe("pending");
-    expect(result.batch).toHaveLength(2);
+    expect(result.status).toBe("overview");
+    expect(result.total_conversations).toBe(2);
     expect(result.conversation_ids).toHaveLength(2);
-    expect(result.total_remaining).toBe(2);
-    expect(result.instructions).toContain("INSTRUCTIONS");
-    // Should only contain user messages
-    expect(result.batch[0].user_messages).toBeDefined();
-    expect(result.batch[0].title).toBeDefined();
+    expect(result.conversation_ids).toContain(1);
+    expect(result.conversation_ids).toContain(2);
+    // conv-1 is in "Test Project", conv-2 is unassigned
+    expect(result.projects).toHaveLength(1);
+    expect(result.projects[0].name).toBe("Test Project");
+    expect(result.projects[0].conversations).toHaveLength(1);
+    expect(result.projects[0].conversations[0].title).toBe("TypeScript Discussion");
+    expect(result.projects[0].conversations[0].first_message).toBe("What are TypeScript generics?");
+    expect(result.unassigned).toHaveLength(1);
+    expect(result.unassigned[0].title).toBe("MQTT Protocol Help");
+    expect(result.unassigned[0].first_message).toBe("Explain MQTT for IoT devices");
+    // Date range
+    expect(result.date_range.earliest).toBe("2024-01-15T10:00:00Z");
+    expect(result.date_range.latest).toBe("2024-02-01T14:00:00Z");
+  });
+
+  it("build_user_profile with depth=quick returns quick instructions", () => {
+    const result = executeTool(db, "build_user_profile", { depth: "quick" }) as any;
+    expect(result.status).toBe("overview");
+    expect(result.instructions).toContain("Call save_memories when done.");
+    expect(result.instructions).not.toContain("deep-dive");
+  });
+
+  it("build_user_profile with depth=standard returns standard instructions", () => {
+    const result = executeTool(db, "build_user_profile", { depth: "standard" }) as any;
+    expect(result.status).toBe("overview");
+    expect(result.instructions).toContain("deep-dive the ~20-30 most interesting");
+    expect(result.instructions).toContain("get_conversation");
+  });
+
+  it("build_user_profile with depth=deep returns deep instructions", () => {
+    const result = executeTool(db, "build_user_profile", { depth: "deep" }) as any;
+    expect(result.status).toBe("overview");
+    expect(result.instructions).toContain("deep-dive every conversation");
+    expect(result.instructions).toContain("Save memories periodically");
+  });
+
+  it("build_user_profile defaults to quick depth", () => {
+    const result = executeTool(db, "build_user_profile", {}) as any;
+    expect(result.status).toBe("overview");
+    expect(result.instructions).toContain("Call save_memories when done.");
+  });
+
+  it("build_user_profile truncates long first messages to ~30 words", () => {
+    // Add a conversation with a long first message
+    const longMessage = Array(50).fill("word").join(" ");
+    const convId3 = db.insertConversation(
+      "chatgpt", "conv-3", "Long Message Test",
+      "2024-03-01T10:00:00Z", undefined, "gpt-4", 1, 50,
+    );
+    db.insertMessage(convId3, "user", longMessage, 50, "2024-03-01T10:00:00Z");
+
+    const result = executeTool(db, "build_user_profile", {}) as any;
+    const longConv = result.unassigned.find((c: any) => c.title === "Long Message Test");
+    expect(longConv).toBeDefined();
+    expect(longConv.first_message.endsWith("...")).toBe(true);
+    // Should be roughly 30 words
+    const wordCount = longConv.first_message.replace("...", "").trim().split(/\s+/).length;
+    expect(wordCount).toBe(30);
   });
 
   it("save_memories stores memories and marks conversations processed", () => {
@@ -138,6 +192,32 @@ describe("Memory extraction flow", () => {
     expect(result.memories_saved).toBe(2);
     expect(result.conversations_marked_processed).toBe(2);
     expect(result.remaining_unprocessed).toBe(0);
+  });
+
+  it("save_memories works without conversation_ids_processed", () => {
+    const result = executeTool(db, "save_memories", {
+      memories: [
+        { category: "professional", content: "Uses TypeScript daily" },
+      ],
+    }) as any;
+
+    expect(result.memories_saved).toBe(1);
+    expect(result.conversations_marked_processed).toBe(0);
+    // Conversations are still unprocessed
+    expect(result.remaining_unprocessed).toBe(2);
+  });
+
+  it("save_memories with empty conversation_ids_processed", () => {
+    const result = executeTool(db, "save_memories", {
+      memories: [
+        { category: "insight", content: "Asks focused technical questions" },
+      ],
+      conversation_ids_processed: [],
+    }) as any;
+
+    expect(result.memories_saved).toBe(1);
+    expect(result.conversations_marked_processed).toBe(0);
+    expect(result.remaining_unprocessed).toBe(2);
   });
 
   it("build_user_profile returns complete after all conversations processed", () => {
@@ -203,20 +283,22 @@ describe("Memory extraction flow", () => {
     expect(profileResult.status).toBe("no_profile");
   });
 
-  it("full round-trip: build → save → profile", () => {
-    // Step 1: Get batch
-    const batch = executeTool(db, "build_user_profile", {}) as any;
-    expect(batch.status).toBe("pending");
-    expect(batch.batch.length).toBeGreaterThan(0);
+  it("full round-trip: overview → save → profile (quick depth)", () => {
+    // Step 1: Get overview
+    const overview = executeTool(db, "build_user_profile", { depth: "quick" }) as any;
+    expect(overview.status).toBe("overview");
+    expect(overview.total_conversations).toBe(2);
+    expect(overview.projects.length + overview.unassigned.length).toBe(2);
+    expect(overview.conversation_ids).toHaveLength(2);
 
-    // Step 2: Save memories
+    // Step 2: Save memories with all conversation IDs
     const saveResult = executeTool(db, "save_memories", {
       memories: [
         { category: "professional", content: "Works with TypeScript" },
         { category: "interest", content: "IoT and MQTT protocols" },
         { category: "insight", content: "Asks focused technical questions" },
       ],
-      conversation_ids_processed: batch.conversation_ids,
+      conversation_ids_processed: overview.conversation_ids,
     }) as any;
     expect(saveResult.remaining_unprocessed).toBe(0);
 
@@ -230,5 +312,33 @@ describe("Memory extraction flow", () => {
     expect(profile.profile).toContain("Professional Details");
     expect(profile.profile).toContain("Key Interests");
     expect(profile.profile).toContain("User Insights");
+  });
+
+  it("deep-dive enrichment: save memories without marking conversations", () => {
+    // Step 1: Quick overview + save with IDs
+    const overview = executeTool(db, "build_user_profile", { depth: "standard" }) as any;
+    executeTool(db, "save_memories", {
+      memories: [
+        { category: "professional", content: "Works with TypeScript" },
+      ],
+      conversation_ids_processed: overview.conversation_ids,
+    });
+
+    // Step 2: Deep-dive enrichment — save additional memories without IDs
+    const enrichResult = executeTool(db, "save_memories", {
+      memories: [
+        { category: "professional", content: "Advanced knowledge of TypeScript generics and mapped types" },
+        { category: "interest", content: "Building IoT systems with MQTT broker clusters" },
+      ],
+    }) as any;
+    expect(enrichResult.memories_saved).toBe(2);
+    expect(enrichResult.conversations_marked_processed).toBe(0);
+    expect(enrichResult.remaining_unprocessed).toBe(0);
+
+    // Profile should include all memories
+    const profile = executeTool(db, "get_user_profile", {}) as any;
+    expect(profile.profile).toContain("TypeScript");
+    expect(profile.profile).toContain("mapped types");
+    expect(profile.profile).toContain("MQTT broker");
   });
 });

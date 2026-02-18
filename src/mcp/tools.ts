@@ -12,7 +12,8 @@ import {
   getProject,
   getStats,
 } from "../db/queries.js";
-import { getOrAssembleProfile, getBuildBatch } from "../profile/generator.js";
+import { getOrAssembleProfile, getProfileOverview } from "../profile/generator.js";
+import type { Depth } from "../profile/generator.js";
 
 export const TOOL_DEFINITIONS = {
   search_conversations: {
@@ -105,16 +106,22 @@ export const TOOL_DEFINITIONS = {
 
   build_user_profile: {
     description:
-      "Get the next batch of unprocessed conversations for memory extraction. " +
-      "Returns ~10 conversations with user messages only. Read them, extract memories, " +
-      "then call save_memories with your findings. Repeat until status is 'complete'.",
-    inputSchema: z.object({}),
+      "Get an overview of ALL conversations for memory extraction. " +
+      "Returns all conversation titles and first messages grouped by project in a single response. " +
+      "Use depth='quick' for title-scan only (fastest), 'standard' to also deep-dive ~20-30 " +
+      "interesting conversations, 'deep' to deep-dive all conversations.",
+    inputSchema: z.object({
+      depth: z
+        .enum(["quick", "standard", "deep"])
+        .default("quick")
+        .describe("Extraction depth: quick (titles only), standard (titles + selective deep-dive), deep (titles + all deep-dives)"),
+    }),
   },
 
   save_memories: {
     description:
-      "Save extracted memories from a batch of conversations. Call this after reading " +
-      "a batch from build_user_profile. Then call build_user_profile again for the next batch.",
+      "Save extracted memories. Pass conversation_ids_processed to mark conversations as done. " +
+      "After title scan, pass all conversation IDs. After deep dives, just pass the new memories.",
     inputSchema: z.object({
       memories: z
         .array(
@@ -135,7 +142,9 @@ export const TOOL_DEFINITIONS = {
         .describe("Extracted memories"),
       conversation_ids_processed: z
         .array(z.number().int())
-        .describe("IDs of conversations that were processed in this batch"),
+        .optional()
+        .default([])
+        .describe("IDs of conversations to mark as processed (pass all IDs after title scan)"),
     }),
   },
 } as const;
@@ -214,8 +223,8 @@ export function executeTool(
           message:
             "No user profile has been built yet. " +
             `There are ${unprocessed} conversations available. ` +
-            "Call `build_user_profile` to start extracting memories from conversations, " +
-            "then call `save_memories` with your findings. Repeat until complete.",
+            "Call `build_user_profile` to get an overview of all conversations, " +
+            "extract memories, then call `save_memories` with your findings.",
           conversations_available: unprocessed,
         };
       }
@@ -237,17 +246,20 @@ export function executeTool(
     }
 
     case "build_user_profile": {
-      return getBuildBatch(db);
+      const { depth } = args as { depth?: Depth };
+      return getProfileOverview(db, depth || "quick");
     }
 
     case "save_memories": {
-      const { memories, conversation_ids_processed } = args as {
+      const { memories, conversation_ids_processed = [] } = args as {
         memories: { category: string; content: string }[];
-        conversation_ids_processed: number[];
+        conversation_ids_processed?: number[];
       };
 
       const savedCount = db.insertMemories(memories);
-      db.markConversationsProcessed(conversation_ids_processed);
+      if (conversation_ids_processed.length > 0) {
+        db.markConversationsProcessed(conversation_ids_processed);
+      }
       db.invalidateProfileCache();
 
       const remaining = db.getUnprocessedCount();
@@ -257,7 +269,7 @@ export function executeTool(
         remaining_unprocessed: remaining,
         message:
           remaining > 0
-            ? `Saved ${savedCount} memories. ${remaining} conversations remaining — call build_user_profile for the next batch.`
+            ? `Saved ${savedCount} memories. ${remaining} conversations remaining — use get_conversation to deep-dive interesting ones, or call get_user_profile to see the current profile.`
             : `Saved ${savedCount} memories. All conversations processed! Call get_user_profile to see the assembled profile.`,
       };
     }

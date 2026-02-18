@@ -6,14 +6,31 @@
   "bin": {
     "context-carry": "./dist/index.js"
   },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run build && npm test"
   },
-  "keywords": ["mcp", "ai", "conversations", "chatgpt", "claude", "analytics"],
+  "keywords": ["mcp", "ai", "conversations", "chatgpt", "claude", "context", "memory", "profile"],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/noo-bass/context-carry.git"
+  },
+  "homepage": "https://github.com/noo-bass/context-carry#readme",
+  "bugs": {
+    "url": "https://github.com/noo-bass/context-carry/issues"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",
     "better-sqlite3": "^11.8.1",
