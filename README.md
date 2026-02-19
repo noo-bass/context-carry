@@ -11,6 +11,9 @@ A super simple local MCP server for chat exports from LLM webapps so you can own
 
 I'm Noo 👋 philosopher turned vibe coder from the UK. When I wanted to switch away from GPT to Claude earlier this year it was super hard to let go of my conversation history so I built this to help me move everything over in a simple way.
 
+![Before/After "Hi what do you know about me"]("Hi what do you know about me?.png")
+![Before/After "What have we spoken about in the past"]("What have we spoken about in the past.png")
+
 ## ⬇️ Installation
 
 ```bash
@@ -24,6 +27,14 @@ npx context-carry import /path/to/export
 ```
 
 ## 🚀 Usage
+
+### Download past conversations
+
+#### ChatGPT
+Settings -> Data Controls -> Export Data
+
+#### Claude
+Settings -> Privace -> Export Data
 
 ### Import conversations
 
@@ -53,12 +64,6 @@ context-carry list
 context-carry list --provider chatgpt
 context-carry list --search "MQTT"
 context-carry list --limit 50 --offset 50
-```
-
-### Start MCP server
-
-```bash
-context-carry serve
 ```
 
 ## MCP Integration
