@@ -14,7 +14,7 @@ I'm Noo 👋 philosopher turned vibe coder from the UK. When I wanted to switch 
 <div align="center">
   <img src="Hi what do you know about me.png" alt="Before/After Hi what do you know about me?">
   <img src="What have we spoken about in the past.png" alt="Before/After Hi what do you know about me">
-<div align="center">
+</div>
 
 ## ⬇️ Installation
 
