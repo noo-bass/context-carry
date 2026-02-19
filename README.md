@@ -12,7 +12,7 @@ A super simple local MCP server for chat exports from LLM webapps so you can own
 I'm Noo 👋 philosopher turned vibe coder from the UK. When I wanted to switch away from GPT to Claude earlier this year it was super hard to let go of my conversation history so I built this to help me move everything over in a simple way.
 
 <div align="center">
-  <img src="Hi what do you know about me?.png" alt="Before/After Hi what do you know about me">
+  <img src="Hi what do you know about me?.png" alt="Before/After Hi what do you know about me?">
   <img src="What have we spoken about in the past.png" alt="Before/After Hi what do you know about me">
 <div align="center">
 
