@@ -1,15 +1,17 @@
-# context-carry
+# 📦 context-carry
 
-Import AI conversation exports and serve them via MCP, so any AI application can access your conversation history.
+A super simple local MCP server for chat exports from LLM webapps so you can ownyour context and escape the walled garden 🧱💥🕊️
 
-## Supported Providers
+## 🌟 Highlights
+- Simple importing of chat exports from ChatGPT, Claude etc.
+- Reconstruct ChatGPT style memory across LLM providers to make switching without losing context easy
+- Simple search across past conversations for any LLM
 
-- **ChatGPT** — `conversations.json` from OpenAI data export (DAG linearization)
-- **Claude.ai** — Official Claude data export (conversations.json + projects.json)
-- **Claude Code** — Local `~/.claude/` session data (JSONL)
-- **Cowork** — Claude Cowork sessions with subagent merging
+## ℹ️ Overview
 
-## Install
+I'm Noo 👋 philosopher turned vibe coder from the UK. When I wanted to switch away from GPT to Claude earlier this year it was super hard to let go of my conversation history so I built this to help me move everything over in a simple way.
+
+## ⬇️ Installation
 
 ```bash
 npm install -g context-carry
@@ -19,10 +21,9 @@ Or run directly with npx:
 
 ```bash
 npx context-carry import /path/to/export
-npx context-carry serve
 ```
 
-## Usage
+## 🚀 Usage
 
 ### Import conversations
 
@@ -137,37 +138,7 @@ Edit `.vscode/mcp.json` in your project root:
 
 > Note: VS Code uses `"servers"` (not `"mcpServers"`) and requires `"type": "stdio"`.
 
-### Windsurf
-
-Edit `~/.codeium/windsurf/mcp_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "context-carry": {
-      "command": "npx",
-      "args": ["context-carry", "serve"]
-    }
-  }
-}
-```
-
-### Cline
-
-Edit `~/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json`:
-
-```json
-{
-  "mcpServers": {
-    "context-carry": {
-      "command": "npx",
-      "args": ["context-carry", "serve"]
-    }
-  }
-}
-```
-
-## MCP Tools
+## 🤖 MCP Tools For Agents
 
 | Tool | Description |
 |------|-------------|
@@ -182,7 +153,7 @@ Edit `~/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-d
 | `get_project` | Project detail with conversation list |
 | `get_stats` | Corpus-wide statistics and per-provider breakdown |
 
-### How profile building works
+### 🧠 How the memory building works
 
 When an AI agent calls `get_user_profile` and no profile exists, it builds one:
 
@@ -191,34 +162,22 @@ When an AI agent calls `get_user_profile` and no profile exists, it builds one:
 3. **`save_memories`** — Stores the extracted memories and marks conversations as processed
 4. **`get_user_profile`** — Returns the assembled profile
 
-That's 3 tool calls total for a quick profile, regardless of how many conversations you have.
+3 tool calls total for a quick profile, regardless of how many conversations you have.
 
 For richer profiles, use `depth="standard"` (AI deep-dives ~20-30 interesting conversations) or `depth="deep"` (deep-dives all conversations).
 
-## Development
+## Supported Providers
 
-```bash
-npm install
-npm run dev       # Watch mode
-npm test          # Run tests
-npm run build     # Production build
-```
+- **ChatGPT** — `conversations.json` from OpenAI data export (DAG linearization)
+- **Claude.ai** — Official Claude data export (conversations.json + projects.json)
+- **Claude Code** — Local `~/.claude/` session data (JSONL)
+- **Cowork** — Claude Cowork sessions with subagent merging
 
-## Architecture
-
-```
-User's AI export (ZIP/directory)
-    ↓
-context-carry import <path>     ← CLI (commander)
-    ↓
-Provider auto-detection → Adapter (ChatGPT/Claude.ai/Claude Code/Cowork)
-    ↓
-Canonical data model → SQLite + FTS5 (better-sqlite3)
-    ↓
-context-carry serve             ← MCP server (stdio, @modelcontextprotocol/sdk)
-    ↓
-Any AI application (Claude Desktop, Claude Code, Cursor, etc.)
-```
+## ROADMAP:
+- [ ] Add HTTP server + hosting to sync with WebApp AI clients
+- [ ] Test with more LLM providers
+- [ ] Inline data analysis
+- [ ] Non-download memory gathering
 
 ## License
 
