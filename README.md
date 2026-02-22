@@ -1,6 +1,6 @@
 # 📦 context-carry
 
-A super simple local MCP server for chat exports from LLM webapps so you can ownyour context and escape the walled garden 🧱💥🕊️
+A super simple local MCP server for chat exports from LLM webapps so you can own your context and escape the walled garden 🧱💥🕊️
 
 ## 🌟 Highlights
 - Simple importing of chat exports from ChatGPT, Claude etc.
@@ -181,6 +181,7 @@ For richer profiles, use `depth="standard"` (AI deep-dives ~20-30 interesting co
 - **Cowork** — Claude Cowork sessions with subagent merging
 
 ## ROADMAP:
+- [ ] Continual updating conversations
 - [ ] Add HTTP server + hosting to sync with WebApp AI clients
 - [ ] Test with more LLM providers
 - [ ] Inline data analysis
