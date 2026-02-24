@@ -216,6 +216,65 @@ export function getProject(
   return { project, conversations };
 }
 
+// ── Context snapshot types + chain walker ─────────────────────
+
+export interface ContextMetadataRow {
+  id: number;
+  conversation_id: number;
+  project_path: string;
+  parent_id: number | null;
+  summary: string;
+  created_at: string;
+}
+
+export interface ContextSnapshot {
+  context_id: number;
+  conversation_id: number;
+  project_path: string;
+  parent_id: number | null;
+  summary: string;
+  created_at: string;
+  content: string;
+}
+
+/**
+ * Walk the parent_id chain from a starting context, fetching message content
+ * for each snapshot. Returns newest-first, up to `depth` entries.
+ */
+export function getContextChain(
+  db: Database.Database,
+  startContextId: number,
+  depth: number = 1,
+): ContextSnapshot[] {
+  const chain: ContextSnapshot[] = [];
+  let currentId: number | null = startContextId;
+
+  while (currentId !== null && chain.length < depth) {
+    const meta = db.prepare(
+      "SELECT * FROM context_metadata WHERE id = ?",
+    ).get(currentId) as ContextMetadataRow | undefined;
+    if (!meta) break;
+
+    const msg = db.prepare(
+      "SELECT content FROM messages WHERE conversation_id = ? ORDER BY sequence_order LIMIT 1",
+    ).get(meta.conversation_id) as { content: string } | undefined;
+
+    chain.push({
+      context_id: meta.id,
+      conversation_id: meta.conversation_id,
+      project_path: meta.project_path,
+      parent_id: meta.parent_id,
+      summary: meta.summary,
+      created_at: meta.created_at,
+      content: msg?.content ?? "",
+    });
+
+    currentId = meta.parent_id;
+  }
+
+  return chain;
+}
+
 /**
  * Get corpus-wide statistics.
  */
