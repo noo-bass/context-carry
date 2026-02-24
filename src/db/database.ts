@@ -278,6 +278,119 @@ export class ConversationDatabase {
     clearAll(conversationIds);
   }
 
+  // ── Context commit/resume ──────────────────────────────────
+
+  /**
+   * Create a context snapshot. Stores a conversation record + single message,
+   * inserts into FTS incrementally, and chains to the previous snapshot for
+   * the same project_path via parent_id.
+   */
+  insertContextCommit(
+    projectPath: string,
+    message: string,
+    context: string,
+  ): { contextId: number; conversationId: number; parentId: number | null; createdAt: string } {
+    const normalizedPath = projectPath.replace(/\/+$/, "");
+    const now = new Date().toISOString();
+    const sourceId = `ctx-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const wordCount = context.split(/\s+/).filter(Boolean).length;
+
+    return this.transaction(() => {
+      // 1. Create conversation record
+      const convId = this.insertConversation(
+        "context-carry", sourceId, message,
+        now, now, undefined, 1, wordCount,
+      );
+
+      // 2. Create single message
+      const msgId = this.insertMessage(convId, "assistant", context, wordCount, now);
+
+      // 3. Insert into FTS incrementally (avoid full rebuild)
+      this.db.prepare("INSERT INTO messages_fts(rowid, content) VALUES (?, ?)").run(msgId, context);
+
+      // 4. Find latest existing context for same path → becomes parent_id
+      const parent = this.db.prepare(
+        "SELECT id FROM context_metadata WHERE project_path = ? ORDER BY created_at DESC LIMIT 1",
+      ).get(normalizedPath) as { id: number } | undefined;
+      const parentId = parent?.id ?? null;
+
+      // 5. Insert context_metadata row
+      const info = this.db.prepare(`
+        INSERT INTO context_metadata (conversation_id, project_path, parent_id, summary, created_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(convId, normalizedPath, parentId, message, now);
+      const contextId = Number(info.lastInsertRowid);
+
+      return { contextId, conversationId: convId, parentId, createdAt: now };
+    });
+  }
+
+  /**
+   * Get the latest context metadata for a project path.
+   */
+  getLatestContextForPath(projectPath: string): {
+    id: number; conversation_id: number; project_path: string;
+    parent_id: number | null; summary: string; created_at: string;
+  } | null {
+    const normalizedPath = projectPath.replace(/\/+$/, "");
+    return this.db.prepare(
+      "SELECT * FROM context_metadata WHERE project_path = ? ORDER BY created_at DESC LIMIT 1",
+    ).get(normalizedPath) as {
+      id: number; conversation_id: number; project_path: string;
+      parent_id: number | null; summary: string; created_at: string;
+    } | null ?? null;
+  }
+
+  /**
+   * Get a context metadata row by its id.
+   */
+  getContextById(contextId: number): {
+    id: number; conversation_id: number; project_path: string;
+    parent_id: number | null; summary: string; created_at: string;
+  } | null {
+    return this.db.prepare(
+      "SELECT * FROM context_metadata WHERE id = ?",
+    ).get(contextId) as {
+      id: number; conversation_id: number; project_path: string;
+      parent_id: number | null; summary: string; created_at: string;
+    } | null ?? null;
+  }
+
+  /**
+   * List context metadata rows with optional filters.
+   */
+  listContextMetadata(options: {
+    projectPath?: string;
+    limit?: number;
+    offset?: number;
+  } = {}): {
+    id: number; conversation_id: number; project_path: string;
+    parent_id: number | null; summary: string; created_at: string;
+  }[] {
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+
+    if (options.projectPath) {
+      conditions.push("project_path = ?");
+      params.push(options.projectPath.replace(/\/+$/, ""));
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const limit = options.limit ?? 50;
+    const offset = options.offset ?? 0;
+    params.push(limit, offset);
+
+    return this.db.prepare(`
+      SELECT * FROM context_metadata
+      ${where}
+      ORDER BY created_at DESC
+      LIMIT ? OFFSET ?
+    `).all(...params) as {
+      id: number; conversation_id: number; project_path: string;
+      parent_id: number | null; summary: string; created_at: string;
+    }[];
+  }
+
   /**
    * Run a function inside a transaction.
    */
