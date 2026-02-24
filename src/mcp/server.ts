@@ -22,7 +22,9 @@ export async function startMcpServer(dbPath: string): Promise<void> {
       "For richer profiles, use depth='standard' or 'deep' to deep-dive interesting conversations " +
       "with `get_conversation`. " +
       "Use `search_conversations` to find specific past conversations when the user references " +
-      "something from their history.",
+      "something from their history. " +
+      "Use `resume_context` at session start to check for prior context for the current directory. " +
+      "Before ending a session, use `commit_context` to save structured handoff notes.",
   });
 
   // Register all tools
