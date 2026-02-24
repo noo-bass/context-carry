@@ -3,7 +3,7 @@
  * All adapters normalize their provider-specific formats into these types.
  */
 
-export type Provider = "chatgpt" | "claude-web" | "claude-code" | "cowork";
+export type Provider = "chatgpt" | "claude-web" | "claude-code" | "cowork" | "context-carry";
 
 export type Role = "user" | "assistant" | "system" | "tool";
 
