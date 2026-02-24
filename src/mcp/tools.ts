@@ -11,9 +11,12 @@ import {
   listProjects,
   getProject,
   getStats,
+  getContextChain,
 } from "../db/queries.js";
 import { getOrAssembleProfile, getProfileOverview } from "../profile/generator.js";
 import type { Depth } from "../profile/generator.js";
+
+const PROVIDER_VALUES = ["chatgpt", "claude-web", "claude-code", "cowork", "context-carry"] as const;
 
 export const TOOL_DEFINITIONS = {
   search_conversations: {
@@ -23,7 +26,7 @@ export const TOOL_DEFINITIONS = {
     inputSchema: z.object({
       query: z.string().describe("Full-text search query (FTS5 syntax supported)"),
       provider: z
-        .enum(["chatgpt", "claude-web", "claude-code", "cowork"])
+        .enum(PROVIDER_VALUES)
         .optional()
         .describe("Filter results to a specific provider"),
       limit: z.number().int().min(1).max(100).default(20).describe("Maximum results to return"),
@@ -52,7 +55,7 @@ export const TOOL_DEFINITIONS = {
       "Returns paginated results sorted by date (newest first).",
     inputSchema: z.object({
       provider: z
-        .enum(["chatgpt", "claude-web", "claude-code", "cowork"])
+        .enum(PROVIDER_VALUES)
         .optional()
         .describe("Filter by provider"),
       project_id: z.number().int().optional().describe("Filter by project ID"),
@@ -67,7 +70,7 @@ export const TOOL_DEFINITIONS = {
     description: "List all projects/workspaces, optionally filtered by provider.",
     inputSchema: z.object({
       provider: z
-        .enum(["chatgpt", "claude-web", "claude-code", "cowork"])
+        .enum(PROVIDER_VALUES)
         .optional()
         .describe("Filter by provider"),
     }),
@@ -145,6 +148,72 @@ export const TOOL_DEFINITIONS = {
         .optional()
         .default([])
         .describe("IDs of conversations to mark as processed (pass all IDs after title scan)"),
+    }),
+  },
+
+  commit_context: {
+    description:
+      "Save a structured context snapshot for the current project so a future session can " +
+      "resume where this one left off. Snapshots are chained per project_path (like git commits). " +
+      "Use this before ending a session.\n\n" +
+      "Recommended context structure (compaction-style):\n" +
+      "```\n" +
+      "## Task\n" +
+      "<what the user asked for>\n\n" +
+      "## Current State\n" +
+      "<what's been done, what's working>\n\n" +
+      "## Key Decisions\n" +
+      "- <decision 1 and why>\n" +
+      "- <decision 2 and why>\n\n" +
+      "## Modified Files\n" +
+      "- <file path>: <what changed>\n\n" +
+      "## Open Issues\n" +
+      "- <anything unresolved>\n\n" +
+      "## Next Steps\n" +
+      "1. <next action>\n" +
+      "2. <next action>\n" +
+      "```",
+    inputSchema: z.object({
+      project_path: z.string().describe("Absolute path to the project directory"),
+      message: z.string().describe("Short commit message summarising this snapshot"),
+      context: z.string().describe("The full context markdown (see recommended structure above)"),
+    }),
+  },
+
+  resume_context: {
+    description:
+      "Retrieve the latest context snapshot(s) for a project path so you can pick up where " +
+      "a previous session left off. Call this at the start of a session.",
+    inputSchema: z.object({
+      project_path: z.string().describe("Absolute path to the project directory"),
+      depth: z
+        .number()
+        .int()
+        .min(1)
+        .max(20)
+        .default(1)
+        .describe("How many snapshots to walk back (1 = latest only)"),
+    }),
+  },
+
+  list_contexts: {
+    description:
+      "List context snapshot metadata (without full content). " +
+      "Useful for seeing all saved snapshots across projects or for a specific project.",
+    inputSchema: z.object({
+      project_path: z.string().optional().describe("Filter by project path"),
+      limit: z.number().int().min(1).max(100).default(50).describe("Maximum results"),
+      offset: z.number().int().min(0).default(0).describe("Offset for pagination"),
+    }),
+  },
+
+  diff_contexts: {
+    description:
+      "Return two context snapshots side-by-side so you can reason about what changed " +
+      "between them.",
+    inputSchema: z.object({
+      context_id_old: z.number().int().describe("ID of the older context snapshot"),
+      context_id_new: z.number().int().describe("ID of the newer context snapshot"),
     }),
   },
 } as const;
@@ -271,6 +340,69 @@ export function executeTool(
           remaining > 0
             ? `Saved ${savedCount} memories. ${remaining} conversations remaining — use get_conversation to deep-dive interesting ones, or call get_user_profile to see the current profile.`
             : `Saved ${savedCount} memories. All conversations processed! Call get_user_profile to see the assembled profile.`,
+      };
+    }
+
+    case "commit_context": {
+      const { project_path, message, context } = args as {
+        project_path: string;
+        message: string;
+        context: string;
+      };
+      const result = db.insertContextCommit(project_path, message, context);
+      return {
+        status: "committed",
+        context_id: result.contextId,
+        conversation_id: result.conversationId,
+        parent_id: result.parentId,
+        created_at: result.createdAt,
+        message: `Context snapshot saved (id: ${result.contextId}). ${result.parentId ? `Chained to parent ${result.parentId}.` : "First snapshot for this path."}`,
+      };
+    }
+
+    case "resume_context": {
+      const { project_path, depth = 1 } = args as {
+        project_path: string;
+        depth?: number;
+      };
+      const latest = db.getLatestContextForPath(project_path);
+      if (!latest) {
+        return { status: "no_context", project_path, message: "No context snapshots found for this path." };
+      }
+      const chain = getContextChain(sqliteDb, latest.id, depth);
+      return {
+        status: "found",
+        project_path,
+        snapshots: chain,
+      };
+    }
+
+    case "list_contexts": {
+      const { project_path, limit, offset } = args as {
+        project_path?: string;
+        limit?: number;
+        offset?: number;
+      };
+      return db.listContextMetadata({ projectPath: project_path, limit, offset });
+    }
+
+    case "diff_contexts": {
+      const { context_id_old, context_id_new } = args as {
+        context_id_old: number;
+        context_id_new: number;
+      };
+
+      const oldMeta = db.getContextById(context_id_old);
+      if (!oldMeta) return { error: `Context ${context_id_old} not found` };
+      const newMeta = db.getContextById(context_id_new);
+      if (!newMeta) return { error: `Context ${context_id_new} not found` };
+
+      const oldChain = getContextChain(sqliteDb, context_id_old, 1);
+      const newChain = getContextChain(sqliteDb, context_id_new, 1);
+
+      return {
+        old: oldChain[0] ?? null,
+        new: newChain[0] ?? null,
       };
     }
 
