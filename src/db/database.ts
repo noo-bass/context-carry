@@ -310,7 +310,7 @@ export class ConversationDatabase {
 
       // 4. Find latest existing context for same path → becomes parent_id
       const parent = this.db.prepare(
-        "SELECT id FROM context_metadata WHERE project_path = ? ORDER BY created_at DESC LIMIT 1",
+        "SELECT id FROM context_metadata WHERE project_path = ? ORDER BY id DESC LIMIT 1",
       ).get(normalizedPath) as { id: number } | undefined;
       const parentId = parent?.id ?? null;
 
@@ -334,7 +334,7 @@ export class ConversationDatabase {
   } | null {
     const normalizedPath = projectPath.replace(/\/+$/, "");
     return this.db.prepare(
-      "SELECT * FROM context_metadata WHERE project_path = ? ORDER BY created_at DESC LIMIT 1",
+      "SELECT * FROM context_metadata WHERE project_path = ? ORDER BY id DESC LIMIT 1",
     ).get(normalizedPath) as {
       id: number; conversation_id: number; project_path: string;
       parent_id: number | null; summary: string; created_at: string;
