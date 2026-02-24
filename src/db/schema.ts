@@ -81,6 +81,17 @@ export const SCHEMA_SQL = `
     projects_imported INTEGER DEFAULT 0
   );
 
+  -- Context snapshots metadata (git-like commit chain per project path)
+  CREATE TABLE IF NOT EXISTS context_metadata (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    project_path TEXT NOT NULL,
+    parent_id INTEGER REFERENCES context_metadata(id),
+    summary TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(conversation_id)
+  );
+
   -- Indexes
   CREATE INDEX IF NOT EXISTS idx_conversations_provider ON conversations(provider);
   CREATE INDEX IF NOT EXISTS idx_conversations_created_at ON conversations(created_at);
@@ -89,4 +100,6 @@ export const SCHEMA_SQL = `
   CREATE INDEX IF NOT EXISTS idx_messages_role ON messages(role);
   CREATE INDEX IF NOT EXISTS idx_projects_provider ON projects(provider);
   CREATE INDEX IF NOT EXISTS idx_memories_category ON memories(category);
+  CREATE INDEX IF NOT EXISTS idx_context_metadata_project_path ON context_metadata(project_path);
+  CREATE INDEX IF NOT EXISTS idx_context_metadata_created_at ON context_metadata(created_at);
 `;
