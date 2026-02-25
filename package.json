@@ -1,6 +1,6 @@
 {
   "name": "context-carry",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Import AI conversation exports and serve them via MCP",
   "type": "module",
   "bin": {
@@ -21,7 +21,16 @@
     "test:watch": "vitest",
     "prepublishOnly": "npm run build && npm test"
   },
-  "keywords": ["mcp", "ai", "conversations", "chatgpt", "claude", "context", "memory", "profile"],
+  "keywords": [
+    "mcp",
+    "ai",
+    "conversations",
+    "chatgpt",
+    "claude",
+    "context",
+    "memory",
+    "profile"
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",
