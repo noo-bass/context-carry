@@ -14,17 +14,21 @@ export async function startMcpServer(dbPath: string): Promise<void> {
     name: "context-carry",
     version: "0.2.0",
     instructions:
-      "context-carry gives you access to the user's conversation history from other AI providers. " +
-      "IMPORTANT: At the start of every new session, call `get_user_profile` to load the user's profile. " +
-      "If it says no profile exists, call `build_user_profile` to get an overview of ALL conversations " +
-      "(titles + first messages) in a single response. Extract memories from the overview, then call " +
-      "`save_memories` with your findings and the conversation IDs. That's it — just 2-3 tool calls! " +
-      "For richer profiles, use depth='standard' or 'deep' to deep-dive interesting conversations " +
-      "with `get_conversation`. " +
+      "context-carry gives you access to the user's conversation history and session handoff tools.\n\n" +
+      "SESSION HANDOFF (use these every session):\n" +
+      "1. At session start, call `resume_context` with the current project directory to check for " +
+      "prior context from a previous session.\n" +
+      "2. Before ending a session, call `commit_context` to save a structured handoff snapshot " +
+      "(task state, decisions, modified files, next steps). This is NOT the same as `save_memories` — " +
+      "`commit_context` saves a project-specific session snapshot, while `save_memories` saves " +
+      "long-lived user profile memories.\n\n" +
+      "USER PROFILE:\n" +
+      "Call `get_user_profile` to load the user's profile. If none exists, call `build_user_profile` " +
+      "to get an overview of all conversations, extract memories, then call `save_memories` with " +
+      "your findings and conversation IDs.\n\n" +
+      "SEARCH:\n" +
       "Use `search_conversations` to find specific past conversations when the user references " +
-      "something from their history. " +
-      "Use `resume_context` at session start to check for prior context for the current directory. " +
-      "Before ending a session, use `commit_context` to save structured handoff notes.",
+      "something from their history.",
   });
 
   // Register all tools

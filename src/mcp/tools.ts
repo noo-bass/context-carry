@@ -156,6 +156,8 @@ export const TOOL_DEFINITIONS = {
       "Save a structured context snapshot for the current project so a future session can " +
       "resume where this one left off. Snapshots are chained per project_path (like git commits). " +
       "Use this before ending a session.\n\n" +
+      "NOTE: This is NOT `save_memories`. Use `commit_context` for session handoff (project-specific, " +
+      "ephemeral task state). Use `save_memories` only for long-lived user profile memories.\n\n" +
       "Recommended context structure (compaction-style):\n" +
       "```\n" +
       "## Task\n" +
