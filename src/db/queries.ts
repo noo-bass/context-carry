@@ -75,7 +75,14 @@ export function searchConversations(
   limit = 20,
   offset = 0,
 ): SearchResult[] {
-  const params: unknown[] = [query];
+  // Quote each token so FTS5 treats hyphens and special chars as literals
+  // e.g. "qwen-tts" → '"qwen-tts"', "foo bar" → '"foo" "bar"'
+  const sanitized = query
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((token) => `"${token.replace(/"/g, '""')}"`)
+    .join(" ");
+  const params: unknown[] = [sanitized];
   let providerClause = "";
   if (provider) {
     providerClause = "AND c.provider = ?";
